@@ -1,0 +1,171 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Stores user account identity, security role, and MFA credentials",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Firebase Auth User UID",
+          "maxLength": 128
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Full legal name of the security officer",
+          "maxLength": 120
+        },
+        "email": {
+          "type": "string",
+          "description": "Authorized enterprise email address",
+          "maxLength": 160
+        },
+        "role": {
+          "type": "string",
+          "description": "Position or role within the organization",
+          "maxLength": 80
+        },
+        "companyName": {
+          "type": "string",
+          "description": "Enterprise legal entity name",
+          "maxLength": 120
+        },
+        "mfaMethod": {
+          "type": "string",
+          "description": "MFA provider: google_authenticator or microsoft_authenticator",
+          "enum": ["google_authenticator", "microsoft_authenticator", "hardware_key"]
+        },
+        "mfaEnabled": {
+          "type": "boolean",
+          "description": "Whether multi-factor authentication has been verified"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Creation timestamp"
+        }
+      },
+      "required": ["userId", "displayName", "email", "role", "companyName", "mfaMethod", "mfaEnabled", "createdAt"]
+    },
+    "GrcAudit": {
+      "title": "GrcAudit",
+      "description": "GRC vulnerability assessment, uploaded infrastructure, and compliance report",
+      "type": "object",
+      "properties": {
+        "auditId": {
+          "type": "string",
+          "description": "Unique audit report identifier",
+          "maxLength": 128
+        },
+        "userId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the creator",
+          "maxLength": 128
+        },
+        "auditorName": {
+          "type": "string",
+          "description": "Name of the auditor generating the report",
+          "maxLength": 120
+        },
+        "auditorPosition": {
+          "type": "string",
+          "description": "Position/title of the auditor",
+          "maxLength": 80
+        },
+        "companyName": {
+          "type": "string",
+          "description": "Target company name",
+          "maxLength": 120
+        },
+        "targetUrl": {
+          "type": "string",
+          "description": "Target domain or endpoint scanned",
+          "maxLength": 255
+        },
+        "storageMode": {
+          "type": "string",
+          "description": "Storage destination: cloud server or local",
+          "enum": ["cloud", "local"]
+        },
+        "locationSummary": {
+          "type": "string",
+          "description": "Geographical location coordinates or city at submission",
+          "maxLength": 160
+        },
+        "riskScore": {
+          "type": "string",
+          "description": "Calculated composite risk score",
+          "maxLength": 10
+        },
+        "frameworkCount": {
+          "type": "string",
+          "description": "Number of mapped regulatory frameworks",
+          "maxLength": 10
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp when audit was executed"
+        }
+      },
+      "required": ["auditId", "userId", "auditorName", "auditorPosition", "companyName", "targetUrl", "storageMode", "createdAt"]
+    },
+    "AccessLog": {
+      "title": "AccessLog",
+      "description": "Tamper-evident audit trail log for accountability and breach forensics",
+      "type": "object",
+      "properties": {
+        "logId": {
+          "type": "string",
+          "description": "Unique log entry identifier",
+          "maxLength": 128
+        },
+        "userId": {
+          "type": "string",
+          "description": "User UID who triggered the action",
+          "maxLength": 128
+        },
+        "userName": {
+          "type": "string",
+          "description": "Name of the operator",
+          "maxLength": 120
+        },
+        "action": {
+          "type": "string",
+          "description": "Type of event (GENERATE_REPORT, EXPORT_PDF, SCAN_URL)",
+          "maxLength": 60
+        },
+        "targetResource": {
+          "type": "string",
+          "description": "Target URL or document ID",
+          "maxLength": 255
+        },
+        "geoLocation": {
+          "type": "string",
+          "description": "GPS / City / IP Geo-location metadata for forensic verification",
+          "maxLength": 160
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of event"
+        }
+      },
+      "required": ["logId", "userId", "userName", "action", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/userProfiles/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profiles partitioned by Auth UID"
+    },
+    "/grcAudits/{auditId}": {
+      "schema": "GrcAudit",
+      "description": "Company security audit records and generated reports"
+    },
+    "/accessLogs/{logId}": {
+      "schema": "AccessLog",
+      "description": "Forensic access trail for breach deterrence and accountability"
+    }
+  }
+}

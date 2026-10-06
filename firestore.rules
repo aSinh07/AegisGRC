@@ -1,0 +1,94 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Safety Net: Default-deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Hardened Global Helpers
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Validation Blueprint for User Profiles
+    function isValidUserProfile(data) {
+      return data.keys().hasAll(['userId', 'displayName', 'email', 'role', 'companyName', 'mfaMethod', 'mfaEnabled', 'createdAt'])
+        && data.userId is string && data.userId.size() <= 128 && data.userId == request.auth.uid
+        && data.displayName is string && data.displayName.size() <= 120
+        && data.email is string && data.email.size() <= 160
+        && data.role is string && data.role.size() <= 80
+        && data.companyName is string && data.companyName.size() <= 120
+        && (data.mfaMethod == 'google_authenticator' || data.mfaMethod == 'microsoft_authenticator' || data.mfaMethod == 'hardware_key')
+        && data.mfaEnabled is bool
+        && data.createdAt is string && data.createdAt.size() <= 64;
+    }
+
+    // Validation Blueprint for GrcAudit Records
+    function isValidGrcAudit(data) {
+      return data.keys().hasAll(['auditId', 'userId', 'auditorName', 'auditorPosition', 'companyName', 'targetUrl', 'storageMode', 'createdAt'])
+        && data.auditId is string && data.auditId.size() <= 128
+        && data.userId is string && data.userId.size() <= 128 && data.userId == request.auth.uid
+        && data.auditorName is string && data.auditorName.size() <= 120
+        && data.auditorPosition is string && data.auditorPosition.size() <= 80
+        && data.companyName is string && data.companyName.size() <= 120
+        && data.targetUrl is string && data.targetUrl.size() <= 255
+        && (data.storageMode == 'cloud' || data.storageMode == 'local')
+        && data.createdAt is string && data.createdAt.size() <= 64;
+    }
+
+    // Validation Blueprint for Tamper-Evident Access Logs
+    function isValidAccessLog(data) {
+      return data.keys().hasAll(['logId', 'userId', 'userName', 'action', 'createdAt'])
+        && data.logId is string && data.logId.size() <= 128
+        && data.userId is string && data.userId.size() <= 128 && data.userId == request.auth.uid
+        && data.userName is string && data.userName.size() <= 120
+        && data.action is string && data.action.size() <= 60
+        && data.createdAt is string && data.createdAt.size() <= 64;
+    }
+
+    // User Profiles Collection
+    match /userProfiles/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && isValidId(userId) && request.auth.uid == userId && isValidUserProfile(incoming());
+      allow update: if isSignedIn() && isValidId(userId) && request.auth.uid == userId && isValidUserProfile(incoming())
+        && incoming().userId == existing().userId
+        && incoming().createdAt == existing().createdAt;
+      allow delete: if false; // Profiles are soft-deleted or retained for enterprise audit
+    }
+
+    // GRC Audits & Infrastructure Reports Collection
+    match /grcAudits/{auditId} {
+      allow get: if isSignedIn() && isValidId(auditId) && resource.data.userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && isValidId(auditId) && incoming().userId == request.auth.uid && isValidGrcAudit(incoming());
+      allow update: if isSignedIn() && isValidId(auditId) && existing().userId == request.auth.uid && isValidGrcAudit(incoming())
+        && incoming().userId == existing().userId
+        && incoming().createdAt == existing().createdAt;
+      allow delete: if isSignedIn() && isValidId(auditId) && existing().userId == request.auth.uid;
+    }
+
+    // Tamper-Evident Access & Geolocation Logs
+    match /accessLogs/{logId} {
+      allow get: if isSignedIn() && isValidId(logId) && resource.data.userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && isValidId(logId) && incoming().userId == request.auth.uid && isValidAccessLog(incoming());
+      allow update: if false; // Immutable audit log
+      allow delete: if false; // Immutable audit log
+    }
+  }
+}

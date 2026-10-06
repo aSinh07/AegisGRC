@@ -1,0 +1,6 @@
+{
+  "name": "AegisGRC - Unified Vulnerability & Compliance Control Plane",
+  "description": "Enterprise vulnerability management, canonical normalization, automated GRC mapping (ISO 27001, ISO 42001, DPDP Act), and isolated AI remediation assistant.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,8 +1,5 @@
 import React, { useState } from 'react';
-import { CanonicalFinding, ScannerSourceType, ToolIntegrationStatus } from '../types/security';
-import { generateDedupHash, simulateAes256Encryption } from '../utils/cryptoSim';
-import { getMappedControlsForCWE } from '../utils/scanParsers';
-import { saveAuditLogToFirestore, saveScanToFirestore } from '../firebase';
+import { CanonicalFinding, ToolIntegrationStatus } from '../types/security';
 import { 
   Network, 
   Terminal, 
@@ -93,9 +90,9 @@ export const ToolsIntegrationHub: React.FC<ToolsIntegrationHubProps> = ({
       id: 'tool-burp',
       name: 'Burp Suite Professional / Enterprise API',
       category: 'Web Proxy',
-      status: 'CONNECTED',
-      endpoint: 'https://burp-scanner.internal:8080/v0.1/scan',
-      lastSync: 'Real-time API ready',
+      status: 'STANDBY',
+      endpoint: 'Not configured',
+      lastSync: 'Provider not connected',
       commandSnippet: 'curl -X POST https://burp.internal:8080/api/v0.1/scan -H "X-Api-Key: $BURP_KEY" -d \'{"urls":["https://api.enterprise.corp"]}\'',
       owaspCoverage: ['A01: Broken Access Control', 'A03: Injection', 'A07: Identification Failures'],
       findingsCount: findings.filter((f) => f.sourceTool === 'BurpSuite').length,
@@ -105,8 +102,8 @@ export const ToolsIntegrationHub: React.FC<ToolsIntegrationHubProps> = ({
       name: 'Metasploit Framework (Exploit Verification)',
       category: 'Exploit Verification',
       status: 'STANDBY',
-      endpoint: 'msf-rpc://127.0.0.1:55553',
-      lastSync: 'Real-time API ready',
+      endpoint: 'Not configured',
+      lastSync: 'Execution intentionally disabled',
       commandSnippet: 'msfconsole -q -x "use auxiliary/scanner/http/sql_injection; set RHOSTS api.enterprise.corp; run; exit"',
       owaspCoverage: ['PoC Verification', 'Remote Code Execution', 'Authentication Bypass'],
       findingsCount: findings.filter((f) => f.sourceTool === 'Metasploit').length,
@@ -115,9 +112,9 @@ export const ToolsIntegrationHub: React.FC<ToolsIntegrationHubProps> = ({
       id: 'tool-wireshark',
       name: 'Wireshark / TShark (Packet Telemetry)',
       category: 'Packet Inspection',
-      status: 'LISTENING',
-      endpoint: 'pcap://eth0 (Promiscuous mode TLS/HTTP)',
-      lastSync: 'Real-time API ready',
+      status: 'STANDBY',
+      endpoint: 'Not configured',
+      lastSync: 'Capture provider not connected',
       commandSnippet: 'tshark -i eth0 -f "tcp port 80 or tcp port 443" -Y "http.authorization or tls.handshake.version == 0x0301"',
       owaspCoverage: ['A02: Cleartext Transmission (CWE-319)', 'Unencrypted Credential Leaks'],
       findingsCount: findings.filter((f) => f.sourceTool === 'Wireshark').length,
@@ -126,9 +123,9 @@ export const ToolsIntegrationHub: React.FC<ToolsIntegrationHubProps> = ({
       id: 'tool-semgrep',
       name: 'Semgrep OSS & GitHub Actions (SAST Engine)',
       category: 'SAST & SCA',
-      status: 'CONNECTED',
-      endpoint: 'github.com/enterprise/backend-core (CI/CD)',
-      lastSync: 'Real-time API ready',
+      status: 'STANDBY',
+      endpoint: 'Requires repository/source input',
+      lastSync: 'Source scanner not connected',
       commandSnippet: 'semgrep scan --config=p/owasp-top-ten --sarif -o semgrep.sarif',
       owaspCoverage: ['A03: Injection (CWE-89)', 'A02: Secrets (CWE-798)', 'A04: Insecure Design'],
       findingsCount: findings.filter((f) => f.sourceTool === 'Semgrep').length,
@@ -137,9 +134,9 @@ export const ToolsIntegrationHub: React.FC<ToolsIntegrationHubProps> = ({
       id: 'tool-ai-scanner',
       name: 'Agentic AI Vulnerability Scanner (Semantic AST & Zero-Day Engine)',
       category: 'SAST & SCA',
-      status: 'CONNECTED',
-      endpoint: 'grpc://ai-sec-agent.internal:9090',
-      lastSync: 'Real-time API ready',
+      status: 'STANDBY',
+      endpoint: 'Analysis only',
+      lastSync: 'Not a direct execution scanner',
       commandSnippet: 'python -m aegis_ai_agent --target https://api.enterprise.corp --inspect-ast --detect-sqli --detect-xss',
       owaspCoverage: ['A03: SQL Injection (CWE-89)', 'A03: Stored XSS (CWE-79)', 'A04: Insecure Design'],
       findingsCount: findings.filter((f) => f.sourceTool === 'AI Scanner' || f.sourceTool === 'Semgrep').length,
@@ -217,7 +214,7 @@ export const ToolsIntegrationHub: React.FC<ToolsIntegrationHubProps> = ({
               Security Tool Integrations &amp; Live Ingestion Hub
             </h2>
             <p className="text-xs text-slate-400">
-              Real socket probing, live TLS/DNS evaluation, and penetration testing using Wapiti, Nmap, Burp Suite, Metasploit, Wireshark, Semgrep &amp; AI AST Engine.
+              Real Nmap and Wapiti execution with raw evidence. Other tools remain disabled until a genuine provider or source integration is configured.
             </p>
           </div>
 
@@ -242,7 +239,7 @@ export const ToolsIntegrationHub: React.FC<ToolsIntegrationHubProps> = ({
                   type="text"
                   value={targetUrl}
                   onChange={(e) => setTargetUrl(e.target.value)}
-                  placeholder="https://api.enterprise.corp or http://localhost:3000"
+                  placeholder="https://your-authorized-target.example"
                   className="flex-1 py-2 px-3 rounded-xl bg-slate-950 border border-slate-800 text-cyan-300 font-mono text-xs focus:outline-hidden focus:border-cyan-500"
                 />
               </div>
@@ -280,27 +277,12 @@ export const ToolsIntegrationHub: React.FC<ToolsIntegrationHubProps> = ({
               </button>
             </div>
           </div>
-
-          {/* Quick Target Presets */}
-          <div className="flex items-center gap-2 flex-wrap pt-1 text-[11px] font-mono text-slate-400">
-            <span className="text-slate-500">Quick Targets:</span>
-            {[
-              { label: 'Fintech Core API', url: 'https://api.fintech-global.corp' },
-              { label: 'Enterprise Gateway', url: 'https://api.enterprise.corp' },
-              { label: 'Localhost Web Server', url: 'http://localhost:3000' },
-            ].map((preset, idx) => (
-              <button
-                key={idx}
-                type="button"
-                onClick={() => setTargetUrl(preset.url)}
-                className="px-2 py-0.5 rounded bg-slate-950 hover:bg-slate-850 border border-slate-800 text-[10px] text-cyan-400 hover:text-cyan-300 cursor-pointer transition-colors"
-              >
-                {preset.label}
-              </button>
-            ))}
+            <label className="flex items-start gap-2 text-[11px] text-slate-300">
+              <input type="checkbox" checked={authorizationConfirmed} onChange={(e) => setAuthorizationConfirmed(e.target.checked)} className="mt-0.5" />
+              <span>I confirm I own this target or have explicit authorization to perform this security assessment.</span>
+            </label>
           </div>
         </div>
-      </div>
 
       {/* Ingestion Toast */}
       {toastMessage && (

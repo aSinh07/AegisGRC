@@ -1,8 +1,5 @@
 import React, { useState } from 'react';
-import { CanonicalFinding, ScannerSourceType, ToolIntegrationStatus } from '../types/security';
-import { generateDedupHash, simulateAes256Encryption } from '../utils/cryptoSim';
-import { getMappedControlsForCWE } from '../utils/scanParsers';
-import { saveAuditLogToFirestore, saveScanToFirestore } from '../firebase';
+import { CanonicalFinding, ToolIntegrationStatus } from '../types/security';
 import { 
   Network, 
   Terminal, 
@@ -52,33 +49,18 @@ export const ToolsIntegrationHub: React.FC<ToolsIntegrationHubProps> = ({
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const [lastProbeStats, setLastProbeStats] = useState<{
-    latencyMs?: number;
-    openPorts?: number[];
-    sslGrade?: string;
-    hstsPresent?: boolean;
-    cspPresent?: boolean;
-    ipAddress?: string;
-    serverBanner?: string;
-    zeroTrustSignature?: string;
-    timestamp?: string;
-  } | null>({
-    latencyMs: 18,
-    openPorts: [80, 443],
-    sslGrade: 'A+ (TLS 1.3 Strict)',
-    hstsPresent: true,
-    cspPresent: true,
-    ipAddress: '198.51.100.82',
-    serverBanner: 'Cloudflare / NGINX 1.24',
-    zeroTrustSignature: '8f9b2c1e4d3a7e5f6a0b9c8d7e6f5a4b3c2d1e0f',
-    timestamp: new Date().toISOString(),
-  });
+    jobId?: string; durationMs?: number; exitCode?: number | null; evidenceHash?: string;
+    resolvedAddresses?: string[]; timestamp?: string;
+  } | null>(null);
+
+  const [authorizationConfirmed, setAuthorizationConfirmed] = useState(false);
 
   const [terminalOutput, setTerminalOutput] = useState<string>(
-`[+] AegisGRC Penetration Testing & Vulnerability Verification Engine v2026.1
-[*] Real-time Socket & DAST probing initialized.
-[*] Connected to backend control plane at /api/pentest/run-tool
-[*] Ready to audit target endpoints, network ports, cipher suites & OWASP Top 10 injection sinks.
-Select a tool above or click 'Execute Live Penetration Test' to perform a live probe.`
+`[+] AegisGRC Real Security Engine
+[*] Real execution endpoint: /api/pentest/run-real-tool
+[*] Available real scanners: Nmap and Wapiti
+[*] Raw stdout/stderr, exit code, timestamps and SHA-256 evidence are preserved.
+[*] Other tool cards are integration placeholders until a genuine provider is configured.`
   );
 
   const tools: ToolIntegrationStatus[] = [
@@ -108,9 +90,9 @@ Select a tool above or click 'Execute Live Penetration Test' to perform a live p
       id: 'tool-burp',
       name: 'Burp Suite Professional / Enterprise API',
       category: 'Web Proxy',
-      status: 'CONNECTED',
-      endpoint: 'https://burp-scanner.internal:8080/v0.1/scan',
-      lastSync: 'Real-time API ready',
+      status: 'STANDBY',
+      endpoint: 'Not configured',
+      lastSync: 'Provider not connected',
       commandSnippet: 'curl -X POST https://burp.internal:8080/api/v0.1/scan -H "X-Api-Key: $BURP_KEY" -d \'{"urls":["https://api.enterprise.corp"]}\'',
       owaspCoverage: ['A01: Broken Access Control', 'A03: Injection', 'A07: Identification Failures'],
       findingsCount: findings.filter((f) => f.sourceTool === 'BurpSuite').length,
@@ -120,8 +102,8 @@ Select a tool above or click 'Execute Live Penetration Test' to perform a live p
       name: 'Metasploit Framework (Exploit Verification)',
       category: 'Exploit Verification',
       status: 'STANDBY',
-      endpoint: 'msf-rpc://127.0.0.1:55553',
-      lastSync: 'Real-time API ready',
+      endpoint: 'Not configured',
+      lastSync: 'Execution intentionally disabled',
       commandSnippet: 'msfconsole -q -x "use auxiliary/scanner/http/sql_injection; set RHOSTS api.enterprise.corp; run; exit"',
       owaspCoverage: ['PoC Verification', 'Remote Code Execution', 'Authentication Bypass'],
       findingsCount: findings.filter((f) => f.sourceTool === 'Metasploit').length,
@@ -130,9 +112,9 @@ Select a tool above or click 'Execute Live Penetration Test' to perform a live p
       id: 'tool-wireshark',
       name: 'Wireshark / TShark (Packet Telemetry)',
       category: 'Packet Inspection',
-      status: 'LISTENING',
-      endpoint: 'pcap://eth0 (Promiscuous mode TLS/HTTP)',
-      lastSync: 'Real-time API ready',
+      status: 'STANDBY',
+      endpoint: 'Not configured',
+      lastSync: 'Capture provider not connected',
       commandSnippet: 'tshark -i eth0 -f "tcp port 80 or tcp port 443" -Y "http.authorization or tls.handshake.version == 0x0301"',
       owaspCoverage: ['A02: Cleartext Transmission (CWE-319)', 'Unencrypted Credential Leaks'],
       findingsCount: findings.filter((f) => f.sourceTool === 'Wireshark').length,
@@ -141,9 +123,9 @@ Select a tool above or click 'Execute Live Penetration Test' to perform a live p
       id: 'tool-semgrep',
       name: 'Semgrep OSS & GitHub Actions (SAST Engine)',
       category: 'SAST & SCA',
-      status: 'CONNECTED',
-      endpoint: 'github.com/enterprise/backend-core (CI/CD)',
-      lastSync: 'Real-time API ready',
+      status: 'STANDBY',
+      endpoint: 'Requires repository/source input',
+      lastSync: 'Source scanner not connected',
       commandSnippet: 'semgrep scan --config=p/owasp-top-ten --sarif -o semgrep.sarif',
       owaspCoverage: ['A03: Injection (CWE-89)', 'A02: Secrets (CWE-798)', 'A04: Insecure Design'],
       findingsCount: findings.filter((f) => f.sourceTool === 'Semgrep').length,
@@ -152,9 +134,9 @@ Select a tool above or click 'Execute Live Penetration Test' to perform a live p
       id: 'tool-ai-scanner',
       name: 'Agentic AI Vulnerability Scanner (Semantic AST & Zero-Day Engine)',
       category: 'SAST & SCA',
-      status: 'CONNECTED',
-      endpoint: 'grpc://ai-sec-agent.internal:9090',
-      lastSync: 'Real-time API ready',
+      status: 'STANDBY',
+      endpoint: 'Analysis only',
+      lastSync: 'Not a direct execution scanner',
       commandSnippet: 'python -m aegis_ai_agent --target https://api.enterprise.corp --inspect-ast --detect-sqli --detect-xss',
       owaspCoverage: ['A03: SQL Injection (CWE-89)', 'A03: Stored XSS (CWE-79)', 'A04: Insecure Design'],
       findingsCount: findings.filter((f) => f.sourceTool === 'AI Scanner' || f.sourceTool === 'Semgrep').length,
@@ -171,108 +153,42 @@ Select a tool above or click 'Execute Live Penetration Test' to perform a live p
     { code: 'A10:2021', name: 'Server-Side Request Forgery (SSRF)', cwEs: ['CWE-918'], desc: 'Fetching remote resources without validating destination IP addresses or cloud metadata endpoints.' },
   ];
 
-  // REAL Penetration Testing Engine via FastAPI / Node backend API
+  // Real scanner execution. Only backend-allowlisted tools are accepted.
   const executeRealPenTest = async (toolToRun: string, overrideTarget?: string) => {
     const target = overrideTarget || targetUrl;
+    if (!['nmap', 'wapiti'].includes(toolToRun)) {
+      setToastMessage(`${toolToRun.toUpperCase()} is not connected to a real execution provider yet.`);
+      setTimeout(() => setToastMessage(null), 4500);
+      return;
+    }
+    if (!authorizationConfirmed) {
+      setToastMessage('Confirm that you own or are explicitly authorized to assess this target.');
+      setTimeout(() => setToastMessage(null), 4500);
+      return;
+    }
     setIsExecuting(true);
     setExecutingToolId(toolToRun);
-
-    const timestampHeader = new Date().toLocaleTimeString();
-    const commandText = `auditor@aegis-control-plane:~$ ${toolToRun} --target "${target}" --verify-tls --eval-ports`;
-    
-    setTerminalOutput((prev) => `${prev}\n\n[${timestampHeader}] ${commandText}\n[*] Initiating live network probe & socket handshakes...`);
-
+    setTerminalOutput(prev => `${prev}\n\n[${new Date().toISOString()}] Starting REAL ${toolToRun.toUpperCase()} job for ${target} ...`);
     try {
-      const response = await fetch('/api/pentest/run-tool', {
+      const response = await fetch('/api/pentest/run-real-tool', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          tool: toolToRun,
-          targetUrl: target,
-          companyName: 'AEGIS ENTERPRISE GRC',
-          auditorName: 'AmanDev',
-        }),
+        body: JSON.stringify({ tool: toolToRun, targetUrl: target, authorizationConfirmed: true }),
       });
-
-      if (!response.ok) {
-        throw new Error(`API returned HTTP ${response.status}`);
-      }
-
       const data = await response.json();
-      
-      // Update terminal with the authentic stdout
-      setTerminalOutput((prev) => `${prev}\n${data.rawOutput}\n[✓] Non-Repudiation Zero-Trust Seal: ${data.zeroTrustSignature}`);
-
-      // Update probe stats
-      if (data.stats) {
-        setLastProbeStats({
-          latencyMs: data.stats.latencyMs,
-          openPorts: data.stats.openPorts,
-          sslGrade: data.stats.sslGrade,
-          hstsPresent: data.stats.hstsPresent,
-          cspPresent: data.stats.cspPresent,
-          ipAddress: data.ipAddress,
-          serverBanner: data.serverBanner,
-          zeroTrustSignature: data.zeroTrustSignature,
-          timestamp: data.timestamp,
-        });
-      }
-
-      // Ingest real findings returned from tool execution
-      if (data.findings && data.findings.length > 0) {
-        const canonicalList: CanonicalFinding[] = data.findings.map((f: any) => ({
-          id: f.id || `${toolToRun.toUpperCase()}-${Date.now().toString(36)}`,
-          title: f.title,
-          description: f.description,
-          severity: f.severity || 'HIGH',
-          cvssScore: f.cvssScore || 7.5,
-          cwe: f.cwe || 'CWE-79',
-          cweName: f.cweName || 'Security Finding',
-          asset: f.asset || target,
-          sinkOrEndpoint: f.sinkOrEndpoint || target,
-          sourceTool: (f.sourceTool || toolToRun) as ScannerSourceType,
-          dedupHash: generateDedupHash(f.asset || target, f.cwe || 'CWE-79', f.sinkOrEndpoint || target),
-          encryptedPayloadPreview: simulateAes256Encryption(`Probe Result: ${f.title}`),
-          status: f.status || 'ACTIVE',
-          likelihood: 4,
-          impact: 4,
-          mappedControls: getMappedControlsForCWE(f.cwe || 'CWE-79'),
-          evidence: f.evidence || `Discovered by ${toolToRun} live probe against ${target}`,
-          remediationRecommendation: f.remediationRecommendation || 'Apply least privilege and input validation.',
-          detectedAt: new Date().toISOString(),
-        }));
-
-        setFindings((prev) => {
-          const existingIds = new Set(prev.map((item) => item.id));
-          const newUnique = canonicalList.filter((item) => !existingIds.has(item.id));
-          return [...newUnique, ...prev];
-        });
-
-        // Sync with Firestore audit log
-        try {
-          await saveAuditLogToFirestore({
-            action: `PENTEST_TOOL_EXECUTED_${toolToRun.toUpperCase()}`,
-            auditorName: 'AmanDev',
-            auditorPosition: 'Chief Information Security Officer (CISO)',
-            companyName: 'AEGIS ENTERPRISE GRC',
-            location: 'Bangalore Data Center / Mumbai Hub',
-            ipAddress: data.ipAddress || '198.51.100.82',
-            details: `Executed real penetration testing tool '${toolToRun}' against ${target}. Found ${canonicalList.length} security findings. Zero-trust token: ${data.zeroTrustSignature?.substring(0, 16)}...`,
-          });
-        } catch (fsErr) {
-          console.warn('Firestore audit note:', fsErr);
-        }
-
-        setToastMessage(`[${toolToRun.toUpperCase()}] Real scan complete: ${canonicalList.length} vulnerability findings correlated & persisted.`);
-      } else {
-        setToastMessage(`[${toolToRun.toUpperCase()}] Real probe complete: Perimeter secure. Zero active vulnerabilities detected.`);
-      }
-    } catch (err: any) {
-      setTerminalOutput((prev) => `${prev}\n[!] Error running tool probe: ${err.message || 'Connection timeout'}`);
-      setToastMessage(`Error connecting to pentest service: ${err.message}`);
+      if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+      setTerminalOutput(prev => `${prev}\n\n--- REAL STDOUT ---\n${data.stdout || '(empty)'}${data.stderr ? `\n--- STDERR ---\n${data.stderr}` : ''}\n\n[Evidence SHA-256] ${data.evidence?.sha256}\n[Exit code] ${data.exitCode}`);
+      setLastProbeStats({
+        jobId:data.jobId, durationMs:data.durationMs, exitCode:data.exitCode,
+        evidenceHash:data.evidence?.sha256, resolvedAddresses:data.resolvedAddresses,
+        timestamp:data.completedAt,
+      });
+      setToastMessage(`${toolToRun.toUpperCase()} real execution completed. Evidence hash captured.`);
+    } catch (err:any) {
+      setTerminalOutput(prev => `${prev}\n[!] REAL SCAN FAILED: ${err.message || 'Unknown error'}`);
+      setToastMessage(`Real scanner error: ${err.message}`);
     } finally {
-      setIsExecuting(false);
-      setExecutingToolId(null);
+      setIsExecuting(false); setExecutingToolId(null);
       setTimeout(() => setToastMessage(null), 5000);
     }
   };
@@ -298,14 +214,14 @@ Select a tool above or click 'Execute Live Penetration Test' to perform a live p
               Security Tool Integrations &amp; Live Ingestion Hub
             </h2>
             <p className="text-xs text-slate-400">
-              Real socket probing, live TLS/DNS evaluation, and penetration testing using Wapiti, Nmap, Burp Suite, Metasploit, Wireshark, Semgrep &amp; AI AST Engine.
+              Real Nmap and Wapiti execution with raw evidence. Other tools remain disabled until a genuine provider or source integration is configured.
             </p>
           </div>
 
           <div className="flex items-center gap-2">
             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-950/80 border border-emerald-500/40 text-emerald-300 font-mono text-[11px] font-bold">
               <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span>Real Probes ACTIVE (Zero Mock)</span>
+              <span>Real Engine: Nmap + Wapiti</span>
             </span>
           </div>
         </div>
@@ -323,7 +239,7 @@ Select a tool above or click 'Execute Live Penetration Test' to perform a live p
                   type="text"
                   value={targetUrl}
                   onChange={(e) => setTargetUrl(e.target.value)}
-                  placeholder="https://api.enterprise.corp or http://localhost:3000"
+                  placeholder="https://your-authorized-target.example"
                   className="flex-1 py-2 px-3 rounded-xl bg-slate-950 border border-slate-800 text-cyan-300 font-mono text-xs focus:outline-hidden focus:border-cyan-500"
                 />
               </div>
@@ -341,11 +257,11 @@ Select a tool above or click 'Execute Live Penetration Test' to perform a live p
               >
                 <option value="wapiti">Wapiti 3.1.8 (Web DAST / Injection Fuzzer)</option>
                 <option value="nmap">Nmap 7.94 (Network Perimeter &amp; TLS Ciphers)</option>
-                <option value="burp">Burp Suite Professional (Web Proxy &amp; Insertion Points)</option>
-                <option value="metasploit">Metasploit 6.3 (Exploit Verification PoC)</option>
-                <option value="wireshark">Wireshark / TShark (Packet Inspection &amp; Leak Audit)</option>
-                <option value="semgrep">Semgrep OSS (SAST Static Analysis)</option>
-                <option value="ai-scanner">Agentic AI Scanner (AST Semantic Analyzer)</option>
+                <option value="burp" disabled>Burp Suite — NOT CONNECTED</option>
+                <option value="metasploit" disabled>Metasploit — NOT CONNECTED</option>
+                <option value="wireshark" disabled>Wireshark / TShark — NOT CONNECTED</option>
+                <option value="semgrep" disabled>Semgrep — REQUIRES SOURCE REPOSITORY</option>
+                <option value="ai-scanner" disabled>AI Scanner — ANALYSIS ONLY</option>
               </select>
             </div>
 
@@ -361,27 +277,12 @@ Select a tool above or click 'Execute Live Penetration Test' to perform a live p
               </button>
             </div>
           </div>
-
-          {/* Quick Target Presets */}
-          <div className="flex items-center gap-2 flex-wrap pt-1 text-[11px] font-mono text-slate-400">
-            <span className="text-slate-500">Quick Targets:</span>
-            {[
-              { label: 'Fintech Core API', url: 'https://api.fintech-global.corp' },
-              { label: 'Enterprise Gateway', url: 'https://api.enterprise.corp' },
-              { label: 'Localhost Web Server', url: 'http://localhost:3000' },
-            ].map((preset, idx) => (
-              <button
-                key={idx}
-                type="button"
-                onClick={() => setTargetUrl(preset.url)}
-                className="px-2 py-0.5 rounded bg-slate-950 hover:bg-slate-850 border border-slate-800 text-[10px] text-cyan-400 hover:text-cyan-300 cursor-pointer transition-colors"
-              >
-                {preset.label}
-              </button>
-            ))}
+            <label className="flex items-start gap-2 text-[11px] text-slate-300">
+              <input type="checkbox" checked={authorizationConfirmed} onChange={(e) => setAuthorizationConfirmed(e.target.checked)} className="mt-0.5" />
+              <span>I confirm I own this target or have explicit authorization to perform this security assessment.</span>
+            </label>
           </div>
         </div>
-      </div>
 
       {/* Ingestion Toast */}
       {toastMessage && (
@@ -447,41 +348,20 @@ Select a tool above or click 'Execute Live Penetration Test' to perform a live p
       {/* Tab 0: Live Penetration Testing Terminal & Network Telemetry */}
       {activeTab === 'terminal' && (
         <div className="space-y-4">
-          {/* Real Network Probe Stats Strip */}
+          {{/* Real execution evidence */}
           {lastProbeStats && (
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-              <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
-                <div className="text-[10px] font-mono text-slate-400 uppercase">Resolved IP:</div>
-                <div className="text-xs font-mono font-bold text-cyan-300">{lastProbeStats.ipAddress || '198.51.100.82'}</div>
-              </div>
-              <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
-                <div className="text-[10px] font-mono text-slate-400 uppercase">Network Latency:</div>
-                <div className="text-xs font-mono font-bold text-emerald-400">{lastProbeStats.latencyMs} ms (Live Socket)</div>
-              </div>
-              <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
-                <div className="text-[10px] font-mono text-slate-400 uppercase">Open TCP Ports:</div>
-                <div className="text-xs font-mono font-bold text-cyan-300">
-                  {lastProbeStats.openPorts?.join(', ') || '80, 443'}
-                </div>
-              </div>
-              <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
-                <div className="text-[10px] font-mono text-slate-400 uppercase">TLS &amp; SSL Grade:</div>
-                <div className="text-xs font-mono font-bold text-emerald-300">{lastProbeStats.sslGrade || 'A+ (TLS 1.3)'}</div>
-              </div>
-              <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
-                <div className="text-[10px] font-mono text-slate-400 uppercase">HSTS / CSP:</div>
-                <div className="text-xs font-mono font-bold text-cyan-300">
-                  {lastProbeStats.hstsPresent ? 'HSTS' : 'No HSTS'} · {lastProbeStats.cspPresent ? 'CSP' : 'No CSP'}
-                </div>
-              </div>
-              <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
-                <div className="text-[10px] font-mono text-slate-400 uppercase">Server Banner:</div>
-                <div className="text-xs font-mono font-bold text-slate-300 truncate">{lastProbeStats.serverBanner || 'NGINX / Edge'}</div>
-              </div>
+            <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+              {[
+                ['Job ID', lastProbeStats.jobId || '—'],
+                ['Duration', lastProbeStats.durationMs != null ? `${lastProbeStats.durationMs} ms` : '—'],
+                ['Exit Code', String(lastProbeStats.exitCode ?? '—')],
+                ['Resolved IP', lastProbeStats.resolvedAddresses?.join(', ') || '—'],
+                ['Evidence SHA-256', lastProbeStats.evidenceHash ? lastProbeStats.evidenceHash.slice(0, 18) + '…' : '—'],
+              ].map(([label,value]) => <div key={label} className="p-3 rounded-xl bg-slate-950 border border-slate-800"><div className="text-[10px] font-mono text-slate-400 uppercase">{label}</div><div className="text-xs font-mono font-bold text-cyan-300 truncate">{value}</div></div>)}
             </div>
           )}
 
-          {/* Interactive Bash Terminal Output Window */}
+          {/* Interactive Bash Terminal Output Window */}}
           <div className="rounded-2xl border border-slate-800 bg-slate-950 shadow-2xl overflow-hidden font-mono text-xs">
             <div className="p-3 bg-slate-900 border-b border-slate-800 flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -523,169 +403,7 @@ Select a tool above or click 'Execute Live Penetration Test' to perform a live p
               {terminalOutput}
             </pre>
 
-            {/* Zero-Trust Seal Strip */}
-            {lastProbeStats?.zeroTrustSignature && (
-              <div className="p-2.5 bg-slate-900/90 border-t border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[10px] font-mono text-slate-400">
-                <span className="flex items-center gap-1 text-cyan-400 font-semibold">
-                  <Shield className="h-3.5 w-3.5" />
-                  <span>Cryptographic Proof of Probe (HMAC-SHA256):</span>
-                </span>
-                <span className="text-cyan-300 truncate select-all bg-slate-950 px-2 py-0.5 rounded border border-slate-800">
-                  {lastProbeStats.zeroTrustSignature}
-                </span>
-              </div>
-            )}
-          </div>
-
-          {/* Quick Tool Launch Grid */}
-          <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800 space-y-2.5">
-            <div className="text-[11px] font-mono font-bold text-slate-300 flex items-center justify-between">
-              <span>Direct Tool Invocation Grid:</span>
-              <span className="text-cyan-400 font-normal">Click any tool to run live socket probe against {targetUrl}</span>
-            </div>
-            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 text-xs">
-              {[
-                { id: 'wapiti', label: 'Wapiti DAST', icon: Terminal },
-                { id: 'nmap', label: 'Nmap Network', icon: Wifi },
-                { id: 'burp', label: 'Burp Suite', icon: Shield },
-                { id: 'metasploit', label: 'Metasploit', icon: Zap },
-                { id: 'wireshark', label: 'Wireshark', icon: Activity },
-                { id: 'semgrep', label: 'Semgrep SAST', icon: FileCode },
-                { id: 'ai-scanner', label: 'AI Scanner', icon: Sparkles },
-              ].map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => executeRealPenTest(item.id)}
-                  disabled={isExecuting}
-                  className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
-                    executingToolId === item.id
-                      ? 'bg-cyan-950 border-cyan-400 text-cyan-300'
-                      : 'bg-slate-950 border-slate-800 hover:border-cyan-500/50 text-slate-300 hover:text-white'
-                  }`}
-                >
-                  <item.icon className="h-4 w-4 mb-2 text-cyan-400" />
-                  <span className="font-bold text-[11px]">{item.label}</span>
-                  <span className="text-[9px] font-mono text-slate-400 mt-1">Run live &gt;</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Tab 1: Connected Security Tools Matrix */}
-      {activeTab === 'connectors' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {tools.map((tool) => (
-            <div
-              key={tool.id}
-              className="p-5 rounded-2xl border border-slate-800 bg-slate-900/60 hover:border-cyan-500/40 transition-all space-y-3 flex flex-col justify-between"
-            >
-              <div className="space-y-2">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="font-mono text-[10px] text-cyan-400 uppercase tracking-wider font-semibold">
-                    {tool.category}
-                  </span>
-                  <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold ${
-                    tool.status === 'CONNECTED'
-                      ? 'bg-emerald-950 text-emerald-300 border border-emerald-800'
-                      : tool.status === 'LISTENING'
-                      ? 'bg-cyan-950 text-cyan-300 border border-cyan-800'
-                      : 'bg-slate-800 text-slate-300'
-                  }`}>
-                    ● {tool.status}
-                  </span>
-                </div>
-
-                <h3 className="text-sm font-bold text-white">{tool.name}</h3>
-
-                <div className="p-2.5 rounded-lg bg-slate-950 font-mono text-[10px] text-slate-400 border border-slate-800 truncate">
-                  Target: <span className="text-slate-200">{targetUrl || tool.endpoint}</span>
-                </div>
-
-                <div className="text-[11px] text-slate-400 space-y-1">
-                  <div className="font-semibold text-slate-300 text-[10px] uppercase">OWASP Top 10 Scope:</div>
-                  <div className="flex flex-wrap gap-1">
-                    {tool.owaspCoverage.map((c, idx) => (
-                      <span key={idx} className="bg-slate-950 px-1.5 py-0.5 rounded border border-slate-800/80 text-[10px] text-slate-300">
-                        {c}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-2 pt-2 border-t border-slate-800/80">
-                <div className="flex items-center justify-between text-xs font-mono">
-                  <span className="text-slate-400">Findings: <b className="text-white tabular-nums">{tool.findingsCount}</b></span>
-                  <span className="text-[10px] text-slate-500">{tool.lastSync}</span>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setActiveTab('terminal');
-                    executeRealPenTest(tool.id.replace('tool-', ''));
-                  }}
-                  disabled={isExecuting}
-                  className="w-full py-1.5 px-3 rounded-lg bg-cyan-950 hover:bg-cyan-900 border border-cyan-500/40 text-cyan-300 hover:text-white font-mono text-[11px] font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-                >
-                  <Play className="h-3 w-3 fill-cyan-400" />
-                  <span>Run Live {tool.name.split(' ')[0]} Scan</span>
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Tab 2: OWASP Top 10 Dynamic Mapping */}
-      {activeTab === 'owasp' && (
-        <div className="space-y-4">
-          <div className="p-4 rounded-xl border border-slate-800 bg-slate-950 text-xs text-slate-400 flex items-center justify-between">
-            <span>
-              Real-time correlation of current repository findings against the <b>OWASP Top 10 (2021/2026)</b> standard.
-            </span>
-            <span className="font-mono text-cyan-400">Automatic CWE Categorization</span>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {owaspCategories.map((owasp, idx) => {
-              const matchingFindings = findings.filter((f) =>
-                owasp.cwEs.some((cwe) => f.cwe.toUpperCase().includes(cwe.toUpperCase()))
-              );
-
-              return (
-                <div
-                  key={idx}
-                  className="p-5 rounded-xl border border-slate-800 bg-slate-900/60 space-y-3 text-xs"
-                >
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <div className="font-mono text-xs font-bold text-cyan-400">{owasp.code}</div>
-                      <h4 className="text-sm font-bold text-white mt-0.5">{owasp.name}</h4>
-                    </div>
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold ${
-                      matchingFindings.length > 0
-                        ? 'bg-rose-950 text-rose-300 border border-rose-800'
-                        : 'bg-emerald-950 text-emerald-300 border border-emerald-800'
-                    }`}>
-                      {matchingFindings.length} FINDINGS
-                    </span>
-                  </div>
-
-                  <p className="text-[11px] text-slate-300 leading-relaxed">{owasp.desc}</p>
-
-                  <div className="pt-2 border-t border-slate-800/80 text-[10px] font-mono text-slate-400 flex items-center justify-between">
-                    <span>Covered CWEs: <span className="text-cyan-300">{owasp.cwEs.join(', ')}</span></span>
-                    {matchingFindings.length > 0 && (
-                      <span className="text-rose-400 font-semibold">Active Exposure</span>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
+            {
           </div>
         </div>
       )}

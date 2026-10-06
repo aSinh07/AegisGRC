@@ -10,6 +10,7 @@ import { GoogleGenAI } from '@google/genai';
 import { createServer as createViteServer } from 'vite';
 import { sanitizePromptTokens } from './src/utils/cryptoSim';
 import { parseScanFile } from './src/utils/scanParsers';
+import { runRealScanner, type RealScanner } from './src/server/realScanner';
 
 dotenv.config();
 
@@ -749,6 +750,34 @@ CREATE TABLE audit_logbook (
       }
     });
   }
+
+  // Production real-tool endpoint. This never accepts arbitrary commands or flags.
+  app.post('/api/pentest/run-real-tool', async (req: Request, res: Response) => {
+    try {
+      const { tool, targetUrl, authorizationConfirmed } = req.body || {};
+      if (authorizationConfirmed !== true) {
+        res.status(403).json({ error: 'Explicit authorization confirmation is required before a real scan.' });
+        return;
+      }
+      if (tool !== 'nmap' && tool !== 'wapiti') {
+        res.status(400).json({ error: 'Real execution currently supports only nmap and wapiti.' });
+        return;
+      }
+      if (!targetUrl || typeof targetUrl !== 'string') {
+        res.status(400).json({ error: 'targetUrl is required.' });
+        return;
+      }
+
+      const result = await runRealScanner(tool as RealScanner, targetUrl);
+      res.status(result.success ? 200 : 502).json(result);
+    } catch (err: any) {
+      console.error('Real scanner execution error:', err);
+      const message = err?.code === 'ENOENT'
+        ? 'Scanner binary is unavailable in this runtime. Deploy using the repository Dockerfile.'
+        : (err?.message || 'Real scanner execution failed');
+      res.status(500).json({ error: message, executionMode: 'REAL_TOOL_EXECUTION' });
+    }
+  });
 
   // Real Penetration Testing Tool Execution Engine API
   app.post('/api/pentest/run-tool', async (req: Request, res: Response) => {
